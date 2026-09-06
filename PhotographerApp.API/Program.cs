@@ -94,14 +94,25 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactDev", policy =>
     {
-        policy.WithOrigins(
+        var allowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
             "http://localhost:5173",
             "http://localhost:3000",
             "https://localhost:5173",
             "https://localhost:3000",
             "https://both-dense-elevation.ngrok-free.dev",
-            "http://both-dense-elevation.ngrok-free.dev"
-        )
+            "http://both-dense-elevation.ngrok-free.dev",
+        };
+
+        // Vercel gives every deployment (production + each preview) its own subdomain
+        // like https://photo-grapher-fronted-<hash>.vercel.app, so match by prefix
+        // instead of listing exact preview URLs.
+        policy.SetIsOriginAllowed(origin =>
+                allowedOrigins.Contains(origin) ||
+                (Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
+                 uri.Scheme == "https" &&
+                 uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase) &&
+                 uri.Host.StartsWith("photo-grapher-fronted", StringComparison.OrdinalIgnoreCase)))
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();
