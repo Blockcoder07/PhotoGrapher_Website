@@ -11,8 +11,16 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found. Set it via User Secrets or appsettings.json.");
+// Local-only secrets (never committed — see appsettings.Local.json, gitignored). In production
+// (e.g. Render) these same keys are set as real environment variables instead, which always take
+// precedence since AddEnvironmentVariables() runs after this in ASP.NET Core's default config setup.
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException(
+        "Connection string 'DefaultConnection' not found. Set it in appsettings.Local.json for local dev, " +
+        "or as the ConnectionStrings__DefaultConnection environment variable in production.");
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
@@ -29,7 +37,12 @@ builder.Services.AddIdentity<IdentityUser, IdentityRole>(options =>
 .AddDefaultTokenProviders();
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var secretKey = Encoding.ASCII.GetBytes(jwtSettings["SecretKey"] ?? "your-secret-key-change-this-in-production-please-use-environment-variables");
+var jwtSecretKeyValue = jwtSettings["SecretKey"];
+if (string.IsNullOrWhiteSpace(jwtSecretKeyValue))
+    throw new InvalidOperationException(
+        "JwtSettings:SecretKey not found. Set it in appsettings.Local.json for local dev, " +
+        "or as the JwtSettings__SecretKey environment variable in production.");
+var secretKey = Encoding.ASCII.GetBytes(jwtSecretKeyValue);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -98,15 +111,27 @@ builder.Services.AddCors(options =>
 builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
 builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 builder.Services.AddScoped<PhotographerApp.Core.Interfaces.ITokenService, PhotographerApp.Infrastructure.Services.Auth.TokenService>();
+// `dotnet publish` copies wwwroot next to the DLL; local `bin/Debug/net8.0` builds don't, so this
+// falls back to reaching up to the project's own wwwroot for local dev only.
+var publishedWwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+var wwwrootPath = Directory.Exists(publishedWwwroot)
+    ? publishedWwwroot
+    : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "wwwroot");
+
 builder.Services.AddScoped<PhotographerApp.Core.Interfaces.IFileStorageService>(provider =>
-    new PhotographerApp.Infrastructure.Services.Business.FileStorageService(
-        Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "wwwroot")));
+    new PhotographerApp.Infrastructure.Services.Business.FileStorageService(wwwrootPath));
 builder.Services.AddScoped<PhotographerApp.Core.Interfaces.IContactService, PhotographerApp.Infrastructure.Services.Business.ContactService>();
 
 // Film-led content services
 builder.Services.AddScoped<PhotographerApp.Core.Interfaces.IFilmService, PhotographerApp.Infrastructure.Services.Content.FilmService>();
 
 var app = builder.Build();
+
+// Render (and similar platforms) assign the port to listen on via the PORT env var;
+// launchSettings.json's URLs only apply to local `dotnet run`, not a published deployment.
+var renderPort = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrEmpty(renderPort))
+    app.Urls.Add($"http://0.0.0.0:{renderPort}");
 
 if (app.Environment.IsDevelopment())
 {
@@ -130,7 +155,6 @@ using (var scope = app.Services.CreateScope())
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
-var wwwrootPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "wwwroot");
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(Path.GetFullPath(wwwrootPath)),
