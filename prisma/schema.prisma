@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// ASP.NET Core Identity user table — kept as-is, only the fields the Node backend
+/// actually touches (auth) are modeled; PII-adjacent Identity fields we don't use
+/// (claims, logins, tokens) are intentionally left out of this schema. The Postgres
+/// foreign keys to those tables still exist and are unaffected by Prisma not modeling them.
+model User {
+  id                   String     @id(map: "PK_AspNetUsers") @map("Id")
+  userName             String?    @map("UserName") @db.VarChar(256)
+  normalizedUserName   String?    @unique(map: "UserNameIndex") @map("NormalizedUserName") @db.VarChar(256)
+  email                String?    @map("Email") @db.VarChar(256)
+  normalizedEmail      String?    @map("NormalizedEmail") @db.VarChar(256)
+  emailConfirmed       Boolean    @map("EmailConfirmed")
+  passwordHash         String?    @map("PasswordHash")
+  securityStamp        String?    @map("SecurityStamp")
+  concurrencyStamp     String?    @map("ConcurrencyStamp")
+  phoneNumber          String?    @map("PhoneNumber")
+  phoneNumberConfirmed Boolean    @map("PhoneNumberConfirmed")
+  twoFactorEnabled     Boolean    @map("TwoFactorEnabled")
+  lockoutEnd           DateTime?  @map("LockoutEnd") @db.Timestamptz(6)
+  lockoutEnabled       Boolean    @map("LockoutEnabled")
+  accessFailedCount    Int        @map("AccessFailedCount")
+  userRoles            UserRole[]
+
+  @@index([normalizedEmail], map: "EmailIndex")
+  @@map("AspNetUsers")
+}
+
+model Role {
+  id               String     @id(map: "PK_AspNetRoles") @map("Id")
+  name             String?    @map("Name") @db.VarChar(256)
+  normalizedName   String?    @unique(map: "RoleNameIndex") @map("NormalizedName") @db.VarChar(256)
+  concurrencyStamp String?    @map("ConcurrencyStamp")
+  userRoles        UserRole[]
+
+  @@map("AspNetRoles")
+}
+
+model UserRole {
+  userId String @map("UserId")
+  roleId String @map("RoleId")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_AspNetUserRoles_AspNetUsers_UserId")
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_AspNetUserRoles_AspNetRoles_RoleId")
+
+  @@id([userId, roleId], map: "PK_AspNetUserRoles")
+  @@index([roleId], map: "IX_AspNetUserRoles_RoleId")
+  @@map("AspNetUserRoles")
+}
+
+model Film {
+  id              Int                @id(map: "PK_Films") @default(autoincrement()) @map("Id")
+  title           String             @map("Title") @db.VarChar(200)
+  slug            String             @unique(map: "IX_Films_Slug") @map("Slug") @db.VarChar(220)
+  coupleNames     String             @map("CoupleNames") @db.VarChar(200)
+  shootLocation   String             @map("ShootLocation") @db.VarChar(200)
+  countryName     String             @map("CountryName") @db.VarChar(100)
+  latitude        Decimal            @map("Latitude") @db.Decimal(9, 6)
+  longitude       Decimal            @map("Longitude") @db.Decimal(9, 6)
+  shootDate       DateTime           @map("ShootDate") @db.Timestamptz(6)
+  story           String             @map("Story")
+  quote           String?            @map("Quote") @db.VarChar(500)
+  heroVideoUrl    String             @map("HeroVideoUrl") @db.VarChar(500)
+  trailerUrl      String             @map("TrailerUrl") @db.VarChar(500)
+  videoType       Int                @map("VideoType")
+  embedId         String?            @map("EmbedId") @db.VarChar(100)
+  posterImagePath String?            @map("PosterImagePath") @db.VarChar(500)
+  webpPath        String?            @map("WebpPath") @db.VarChar(500)
+  thumbnailPath   String?            @map("ThumbnailPath") @db.VarChar(500)
+  blurHash        String?            @map("BlurHash") @db.VarChar(60)
+  lqipDataUri     String?            @map("LqipDataUri")
+  paletteJson     String?            @map("PaletteJson") @db.VarChar(100)
+  durationSeconds Int?               @map("DurationSeconds")
+  isFeaturedHero  Boolean            @map("IsFeaturedHero")
+  isPublished     Boolean            @map("IsPublished")
+  displayOrder    Int                @map("DisplayOrder")
+  viewCount       Int                @map("ViewCount")
+  createdAt       DateTime           @map("CreatedAt") @db.Timestamptz(6)
+  updatedAt       DateTime           @map("UpdatedAt") @db.Timestamptz(6)
+  isDeleted       Boolean            @map("IsDeleted")
+  galleryImages   FilmGalleryImage[]
+
+  @@index([isPublished, displayOrder], map: "IX_Films_IsPublished_DisplayOrder")
+  @@index([latitude, longitude], map: "IX_Films_Latitude_Longitude")
+  @@map("Films")
+}
+
+model FilmGalleryImage {
+  id           Int      @id(map: "PK_FilmGalleryImages") @default(autoincrement()) @map("Id")
+  filmId       Int      @map("FilmId")
+  imagePath    String   @map("ImagePath") @db.VarChar(500)
+  displayOrder Int      @map("DisplayOrder")
+  createdAt    DateTime @map("CreatedAt") @db.Timestamptz(6)
+  updatedAt    DateTime @map("UpdatedAt") @db.Timestamptz(6)
+  isDeleted    Boolean  @map("IsDeleted")
+  film         Film     @relation(fields: [filmId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_FilmGalleryImages_Films_FilmId")
+
+  @@index([filmId, displayOrder], map: "IX_FilmGalleryImages_FilmId_DisplayOrder")
+  @@map("FilmGalleryImages")
+}
+
+model ContactMessage {
+  id        Int       @id(map: "PK_ContactMessages") @default(autoincrement()) @map("Id")
+  name      String    @map("Name")
+  email     String    @map("Email")
+  phone     String?   @map("Phone") @db.VarChar(20)
+  subject   String?   @map("Subject") @db.VarChar(300)
+  message   String    @map("Message")
+  eventType String?   @map("EventType") @db.VarChar(100)
+  eventDate DateTime? @map("EventDate") @db.Timestamptz(6)
+  isRead    Boolean   @map("IsRead")
+  createdAt DateTime  @map("CreatedAt") @db.Timestamptz(6)
+  updatedAt DateTime  @map("UpdatedAt") @db.Timestamptz(6)
+  isDeleted Boolean   @map("IsDeleted")
+
+  @@map("ContactMessages")
+}
