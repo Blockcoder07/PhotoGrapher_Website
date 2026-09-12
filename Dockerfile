@@ -1,21 +1,30 @@
 # Build stage
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
-WORKDIR /src
+FROM node:22-slim AS build
+WORKDIR /app
 
-# Copy project files first so `dotnet restore` is cached unless dependencies change
-COPY PhotographerApp.Core/PhotographerApp.Core.csproj PhotographerApp.Core/
-COPY PhotographerApp.Infrastructure/PhotographerApp.Infrastructure.csproj PhotographerApp.Infrastructure/
-COPY PhotographerApp.API/PhotographerApp.API.csproj PhotographerApp.API/
-RUN dotnet restore PhotographerApp.API/PhotographerApp.API.csproj
+# Copy manifest files first so `npm ci` is cached unless dependencies change
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Copy the rest of the source and publish
+# Prisma Client needs the schema present (and generated) before `nest build` type-checks against it
+COPY prisma ./prisma
+RUN npx prisma generate
+
 COPY . .
-RUN dotnet publish PhotographerApp.API/PhotographerApp.API.csproj -c Release -o /app/publish
+RUN npm run build
 
 # Runtime stage
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+FROM node:22-slim AS runtime
 WORKDIR /app
-COPY --from=build /app/publish .
+ENV NODE_ENV=production
 
-# Render assigns the listening port via $PORT; Program.cs already binds to it.
-ENTRYPOINT ["dotnet", "PhotographerApp.API.dll"]
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY prisma ./prisma
+RUN npx prisma generate
+
+COPY --from=build /app/dist ./dist
+
+# Render assigns the listening port via $PORT; main.ts already binds to it (default 5000 otherwise).
+CMD ["node", "dist/main.js"]
